@@ -1,0 +1,64 @@
+# ==============================================================================
+# input_number helpers for solar automation parameters
+# Add to your HA configuration.yaml:
+#   input_number: !include input_number.yaml
+# Or paste directly under input_number: in configuration.yaml
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Epever voltage stepping
+# ------------------------------------------------------------------------------
+
+ep_thresh_hi:
+  name: "EP Vcm Threshold High"
+  icon: mdi:arrow-up-circle
+  min: 3.00
+  max: 3.60
+  step: 0.01
+  unit_of_measurement: "V"
+  mode: box
+
+ep_thresh_lo:
+  name: "EP Vcm Threshold Low"
+  icon: mdi:arrow-down-circle
+  min: 2.70
+  max: 3.60
+  step: 0.01
+  unit_of_measurement: "V"
+  mode: box
+
+ep_voltage_step:
+  name: "EP Voltage Step"
+  icon: mdi:stairs
+  min: 0.01
+  max: 0.50
+  step: 0.01
+  unit_of_measurement: "V"
+  mode: box
+
+ep_voltage_min:
+  name: "EP Voltage Min (clamp)"
+  icon: mdi:battery-low
+  min: 20.00
+  max: 28.00
+  step: 0.01
+  unit_of_measurement: "V"
+  mode: box
+
+ep_voltage_max:
+  name: "EP Voltage Max (clamp)"
+  icon: mdi:battery-high
+  min: 22.00
+  max: 30.00
+  step: 0.01
+  unit_of_measurement: "V"
+  mode: box
+
+ep_cooldown_minutes:
+  name: "EP Step Cooldown (seconds)"
+  icon: mdi:timer-outline
+  min: 1
+  max: 3600
+  step: 1
+  unit_of_measurement: "s"
+  mode: box

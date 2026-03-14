@@ -1,0 +1,827 @@
+# ==============================================================================
+# ESPHome config: Solar Controller
+# Hardware: NodeMCU-32S + MAX3485 + Epever XTRA4415N + JKBMS JK_BD6A20S10P + 8ch relay
+# ------------------------------------------------------------------------------
+# NOTE: EN pin has 47nF cap to GND on hardware (boot stability) — no yaml needed
+# NOTE: First flash must be via USB. OTA thereafter.
+# ==============================================================================
+
+substitutions:
+  device_name: solar-controller
+  friendly_name: Solar Controller
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: nodemcu-32s
+  framework:
+    type: arduino
+
+# ------------------------------------------------------------------------------
+# External components
+# ------------------------------------------------------------------------------
+external_components:
+  - source: github://syssi/esphome-jk-bms@main
+    components: [jk_bms_ble]
+    refresh: 0s
+  - source:
+      type: local
+      path: components
+    components: [epever_settings]
+
+# ------------------------------------------------------------------------------
+# WiFi / OTA / API
+# ------------------------------------------------------------------------------
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    #password: !secret fallback_password
+
+captive_portal:
+
+logger:
+  level: INFO
+  # Disable UART logger so it doesn't conflict with RS485 on UART2
+  baud_rate: 0
+  logs:
+    jk_bms_ble: WARN
+  #  sensor: WARN
+  #  #modbus_controller.sensor: WARN
+  #  modbus_controller: DEBUG
+  #  modbus: DEBUG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+    on_begin:
+      then:
+        - switch.turn_off: jkbms_ble_switch
+        - logger.log: "BLE suspended for OTA"
+
+# ------------------------------------------------------------------------------
+# RS485 UART — GPIO16=RX, GPIO17=TX (UART2), Variant B: DE=VCC, RE=GND
+# ------------------------------------------------------------------------------
+uart:
+  id: rs485_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 115200
+
+modbus:
+  id: epever_modbus
+  uart_id: rs485_uart
+  send_wait_time: 250ms
+
+modbus_controller:
+  - id: epever
+    address: 0x01
+    modbus_id: epever_modbus
+    setup_priority: -10
+    update_interval: 10s
+
+# ------------------------------------------------------------------------------
+# BLE for JKBMS
+# ------------------------------------------------------------------------------
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 320ms
+    window: 30ms
+    active: false
+
+ble_client:
+  - mac_address: !secret jkbms_mac
+    id: jkbms_ble_client
+
+jk_bms_ble:
+  - ble_client_id: jkbms_ble_client
+    id: jkbms
+    protocol_version: JK02_32S # HW version >= 11.0
+    throttle: 5s
+
+# ==============================================================================
+# Epever settings — atomic multi-register write with constraint enforcement.
+# Writes are silently ignored until cache is fully populated from first poll.
+# ==============================================================================
+
+epever_settings:
+  id: epever_mgr
+  modbus_controller_id: epever
+
+  high_voltage_disconnect:
+    name: "EP High Voltage Disconnect"
+    min_value: 24.0
+    max_value: 32.0
+
+  charging_limit_voltage:
+    name: "EP Charging Limit Voltage"
+    min_value: 22.0
+    max_value: 30.0
+
+  over_voltage_reconnect:
+    name: "EP Over Voltage Reconnect"
+    min_value: 22.0
+    max_value: 30.0
+
+  equalization_voltage:
+    name: "EP Equalization Voltage"
+    min_value: 22.0
+    max_value: 30.0
+
+  boost_voltage:
+    name: "EP Boost Voltage"
+    min_value: 22.0
+    max_value: 29.0
+
+  float_voltage:
+    name: "EP Float Voltage"
+    min_value: 22.0
+    max_value: 28.0
+
+  boost_reconnect_voltage:
+    name: "EP Boost Reconnect Voltage"
+    min_value: 20.0
+    max_value: 27.0
+
+  low_voltage_reconnect:
+    name: "EP Low Voltage Reconnect"
+    min_value: 20.0
+    max_value: 26.0
+
+  under_voltage_recover:
+    name: "EP Under Voltage Recover"
+    min_value: 18.0
+    max_value: 25.0
+
+  under_voltage_warning:
+    name: "EP Under Voltage Warning"
+    min_value: 18.0
+    max_value: 25.0
+
+  low_voltage_disconnect:
+    name: "EP Low Voltage Disconnect"
+    min_value: 18.0
+    max_value: 24.0
+
+  discharging_limit_voltage:
+    name: "EP Discharging Limit Voltage"
+    min_value: 18.0
+    max_value: 24.0
+
+# ==============================================================================
+# BUTTONS
+# ==============================================================================
+
+button:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    retrieve_settings:
+      name: "BMS Retrieve Settings"
+    retrieve_device_info:
+      name: "BMS Retrieve Device Info"
+
+  - platform: restart
+    name: "Restart"
+    icon: mdi:restart
+
+# ==============================================================================
+# SENSORS
+# ==============================================================================
+
+sensor:
+  # --- Diagnostics ---
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    device_class: signal_strength
+    state_class: measurement
+  - platform: uptime
+    name: "Uptime"
+    device_class: duration
+    state_class: measurement
+
+  # --- PV ---
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP PV Voltage"
+    register_type: read
+    address: 0x3100
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP PV Current"
+    register_type: read
+    address: 0x3101
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP PV Power"
+    register_type: read
+    address: 0x3102
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    value_type: U_DWORD_R
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # --- Battery ---
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Batt Voltage"
+    register_type: read
+    address: 0x3104
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Batt Current"
+    register_type: read
+    address: 0x3105
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Batt SOC"
+    register_type: read
+    address: 0x311A
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Batt Temp"
+    register_type: read
+    address: 0x3110
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  # --- Load ---
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Load Voltage"
+    register_type: read
+    address: 0x310C
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Load Current"
+    register_type: read
+    address: 0x310D
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Load Power"
+    register_type: read
+    address: 0x310E
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    value_type: U_DWORD_R
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Controller Temp"
+    register_type: read
+    address: 0x3111
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  # --- Energy ---
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP PV kWh Today"
+    register_type: read
+    address: 0x330C
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    value_type: U_DWORD_R
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Load kWh Today"
+    register_type: read
+    address: 0x3310
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    value_type: U_DWORD_R
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # ----------------------------------------------------------------------------
+  # Epever holding registers 0x9000–0x900E — read-back + cache feed
+  # All internal: true — display is via epever_settings number entities.
+  # on_value lambda feeds update_cache() so writes are always based on
+  # current Epever state. Cache must be fully populated before any write
+  # is accepted (15/15 registers seen).
+  # ----------------------------------------------------------------------------
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9000 batt_type"
+    register_type: holding
+    address: 0x9000
+    value_type: U_WORD
+    accuracy_decimals: 0
+    internal: true
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(0, (uint16_t)x);"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9001 batt_capacity"
+    register_type: holding
+    address: 0x9001
+    unit_of_measurement: "Ah"
+    value_type: U_WORD
+    accuracy_decimals: 0
+    internal: true
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(1, (uint16_t)x);"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9002 temp_coeff"
+    register_type: holding
+    address: 0x9002
+    value_type: U_WORD
+    accuracy_decimals: 0
+    internal: true
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(2, (uint16_t)x);"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9003 high_voltage_disconnect"
+    register_type: holding
+    address: 0x9003
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(3, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9004 charging_limit"
+    register_type: holding
+    address: 0x9004
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(4, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9005 over_voltage_reconnect"
+    register_type: holding
+    address: 0x9005
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(5, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9006 eq_voltage"
+    register_type: holding
+    address: 0x9006
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(6, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9007 boost_voltage"
+    register_type: holding
+    address: 0x9007
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(7, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9008 float_voltage"
+    register_type: holding
+    address: 0x9008
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(8, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x9009 boost_reconnect"
+    register_type: holding
+    address: 0x9009
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(9, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x900A low_voltage_reconnect"
+    register_type: holding
+    address: 0x900A
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(10, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x900B under_voltage_recover"
+    register_type: holding
+    address: 0x900B
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(11, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x900C under_voltage_warning"
+    register_type: holding
+    address: 0x900C
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(12, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x900D low_voltage_disconnect"
+    register_type: holding
+    address: 0x900D
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(13, (uint16_t)(x * 100));"
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP reg 0x900E discharging_limit"
+    register_type: holding
+    address: 0x900E
+    unit_of_measurement: "V"
+    value_type: U_WORD
+    accuracy_decimals: 2
+    internal: true
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: "id(epever_mgr).update_cache(14, (uint16_t)(x * 100));"
+
+  # ----------------------------------------------------------------------------
+  # JKBMS via BLE
+  # ----------------------------------------------------------------------------
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    total_voltage:
+      name: "BMS Battery Voltage"
+      device_class: voltage
+      state_class: measurement
+    current:
+      name: "BMS Battery Current"
+      device_class: current
+      state_class: measurement
+    power:
+      name: "BMS Battery Power"
+      device_class: power
+      state_class: measurement
+    state_of_charge:
+      name: "BMS State of Charge"
+      device_class: battery
+      state_class: measurement
+    cell_voltage_1:
+      name: "BMS Cell 1 Voltage"
+    cell_voltage_2:
+      name: "BMS Cell 2 Voltage"
+    cell_voltage_3:
+      name: "BMS Cell 3 Voltage"
+    cell_voltage_4:
+      name: "BMS Cell 4 Voltage"
+    cell_voltage_5:
+      name: "BMS Cell 5 Voltage"
+    cell_voltage_6:
+      name: "BMS Cell 6 Voltage"
+    cell_voltage_7:
+      name: "BMS Cell 7 Voltage"
+    cell_voltage_8:
+      name: "BMS Cell 8 Voltage"
+    min_cell_voltage:
+      name: "BMS Min Cell Voltage"
+    max_cell_voltage:
+      name: "BMS Max Cell Voltage"
+    delta_cell_voltage:
+      name: "BMS Cell Voltage Delta"
+    average_cell_voltage:
+      name: "BMS Average Cell Voltage"
+    balancing:
+      name: "BMS balancing"
+    temperature_sensor_1:
+      name: "BMS Temp 1"
+      device_class: temperature
+      state_class: measurement
+    temperature_sensor_2:
+      name: "BMS Temp 2"
+      device_class: temperature
+      state_class: measurement
+    power_tube_temperature:
+      name: "BMS MOS Temp"
+      device_class: temperature
+      state_class: measurement
+    total_battery_capacity_setting:
+      name: "BMS Capacity Conf"
+    capacity_remaining:
+      name: "BMS Capacity Remaining"
+    charging_cycles:
+      name: "BMS Charge Cycles"
+      state_class: total_increasing
+    total_charging_cycle_capacity:
+      name: "BMS Total Throughput"
+      state_class: total_increasing
+
+# ==============================================================================
+# BINARY SENSORS
+# ==============================================================================
+
+binary_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Charging"
+    register_type: read
+    address: 0x3200
+    bitmask: 0x0003
+    device_class: battery_charging
+
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Load On"
+    register_type: read
+    address: 0x3201
+    bitmask: 0x0001
+    device_class: running
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    charging:
+      name: "BMS Charging"
+      device_class: battery_charging
+    discharging:
+      name: "BMS Discharging"
+    balancing:
+      name: "BMS Balancing"
+    online_status:
+      name: "BMS Online"
+      device_class: connectivity
+
+# ==============================================================================
+# TEXT SENSORS
+# ==============================================================================
+
+text_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: epever
+    name: "EP Charge Stage"
+    register_type: read
+    address: 0x3200
+    raw_encode: HEXBYTES
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    errors:
+      name: "BMS Errors"
+    operation_status:
+      name: "BMS Operation Status"
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "WiFi SSID"
+    mac_address:
+      name: "MAC Address"
+
+# ==============================================================================
+# NUMBERS — BMS only (Epever handled by epever_settings component above)
+# ==============================================================================
+
+number:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    balance_starting_voltage:
+      name: BMS Balance Start Voltage
+    balance_trigger_voltage:
+      name: BMS Balance Trigger Voltage
+    cell_voltage_overvoltage_protection:
+      name: BMS Cell OVP Threshold
+    cell_voltage_undervoltage_protection:
+      name: BMS Cell UVP Threshold
+    max_charge_current:
+      name: BMS Max Charge Current
+    max_discharge_current:
+      name: BMS Max Discharge Current
+
+# ==============================================================================
+# SWITCHES
+# ==============================================================================
+
+switch:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    charging:
+      name: BMS Charging Enable
+    discharging:
+      name: BMS Discharging Enable
+    balancer:
+      name: BMS Balancer Enable
+
+  - platform: ble_client
+    ble_client_id: jkbms_ble_client
+    id: jkbms_ble_switch
+    name: BMS BLE Enable
+
+  - platform: gpio
+    name: Relay 18650 Charger
+    id: relay_inverter_enable
+    pin:
+      number: GPIO15
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:power
+
+  - platform: gpio
+    name: Relay Wind Brake
+    id: relay_wind_brake
+    pin:
+      number: GPIO22
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:wind-turbine
+
+  - platform: gpio
+    name: Relay X
+    id: relay_inverter_ssr
+    pin:
+      number: GPIO33
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:electric-switch
+
+  - platform: gpio
+    name: Relay Inverter AC SSR
+    pin:
+      number: GPIO5
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  - platform: gpio
+    name: Relay 4
+    pin:
+      number: GPIO4
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  - platform: gpio
+    name: Relay 5
+    pin:
+      number: GPIO32
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  - platform: gpio
+    name: Relay 7
+    pin:
+      number: GPIO25
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  - platform: gpio
+    name: Relay 8
+    pin:
+      number: GPIO26
+      inverted: false
+    restore_mode: RESTORE_DEFAULT_OFF

@@ -1,0 +1,108 @@
+# ==============================================================================
+# Blueprint: Cell voltage controlled smart switch
+# ------------------------------------------------------------------------------
+# Turns a smart switch ON when BMS max cell voltage exceeds thresh_hi,
+# OFF when it drops below thresh_lo. Per-switch cooldown protects relays.
+#
+# Usage:
+#   Settings → Automations → Create Automation → From Blueprint
+#   Instantiate once per switch (SW0, SW1, ...) with different thresholds.
+#
+# Each instance needs two input_number helpers created in HA UI:
+#   input_number.swX_thresh_hi
+#   input_number.swX_thresh_lo
+#   input_number.swX_cooldown_secs
+# (or use the blueprint inputs to point at your own helper entity IDs)
+# ==============================================================================
+
+blueprint:
+  name: "Cell Voltage Switch Control"
+  description: >
+    Controls a smart switch based on BMS max cell voltage thresholds.
+    Turns ON above thresh_hi, OFF below thresh_lo. Cooldown prevents relay chatter.
+  domain: automation
+  input:
+    vcm_sensor:
+      name: Max Cell Voltage Sensor
+      description: BMS max cell voltage sensor entity
+      default: sensor.sc_bms_max_cell_voltage
+      selector:
+        entity:
+          domain: sensor
+
+    target_switch:
+      name: Smart Switch
+      description: The switch to control (SW0, SW1, ...)
+      selector:
+        entity:
+          domain: switch
+
+    thresh_hi:
+      name: Turn ON threshold (V)
+      description: Turn switch ON when Vcm exceeds this voltage
+      selector:
+        entity:
+          domain: input_number
+
+    thresh_lo:
+      name: Turn OFF threshold (V)
+      description: Turn switch OFF when Vcm drops below this voltage
+      selector:
+        entity:
+          domain: input_number
+
+    cooldown:
+      name: Cooldown (input_number entity)
+      description: input_number entity holding cooldown duration in seconds
+      selector:
+        entity:
+          domain: input_number
+
+# ------------------------------------------------------------------------------
+# Automation mode: queued would pile up, restart would thrash.
+# single: if already running (i.e. in cooldown delay), skip new triggers.
+# ------------------------------------------------------------------------------
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input vcm_sensor
+
+variables:
+  input_number_thresh_hi: !input thresh_hi
+  input_number_thresh_lo: !input thresh_lo
+  input_number_cooldown: !input cooldown
+
+action:
+  - variables:
+      vcm: "{{ states(trigger.entity_id) | float(0) }}"
+      hi: "{{ states(input_number_thresh_hi) | float(0) }}"
+      lo: "{{ states(input_number_thresh_lo) | float(0) }}"
+      cooldown: "{{ states(input_number_cooldown) | float(1) }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ vcm > hi }}"
+          - condition: state
+            entity_id: !input target_switch
+            state: "off"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input target_switch
+          - delay:
+              seconds: "{{ cooldown_val | int }}"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ vcm < lo }}"
+          - condition: state
+            entity_id: !input target_switch
+            state: "on"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input target_switch
+          - delay:
+              seconds: "{{ cooldown_val | int }}"

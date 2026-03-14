@@ -1,0 +1,96 @@
+# ==============================================================================
+# Automation: Epever charging voltage stepping
+# ------------------------------------------------------------------------------
+# Adjusts Epever boost_voltage float_voltage, and eq_voltage (kept in sync) based on
+# BMS max cell voltage (Vcm):
+#   Vcm > EP::thresh_hi  → step DOWN by ep_voltage_step (cells getting full)
+#   Vcm < EP::thresh_lo  → step UP by ep_voltage_step (cells have headroom)
+#
+# Voltage is clamped between ep_voltage_min and ep_voltage_max.
+# Steps are rate-limited by ep_cooldown_secs.
+#
+# Prerequisites:
+#   - input_number helpers from input_number.yaml must exist
+#   - epever_settings component must be running (number entities below must exist)
+#
+# Add to automations.yaml or paste into HA automation UI (raw yaml mode).
+# ==============================================================================
+
+alias: "Epever Charging Voltage Stepping"
+description: "Step Epever boost+float+eq voltage up/down based on BMS max cell voltage"
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: sensor.sc_bms_max_cell_voltage
+
+variables:
+  vcm: "{{ states('sensor.sc_bms_max_cell_voltage') | float(0) }}"
+  thresh_hi: "{{ states('input_number.ep_thresh_hi') | float(3.45) }}"
+  thresh_lo: "{{ states('input_number.ep_thresh_lo') | float(3.35) }}"
+  step: "{{ states('input_number.ep_voltage_step') | float(0.01) }}"
+  v_min: "{{ states('input_number.ep_voltage_min') | float(24.0) }}"
+  v_max: "{{ states('input_number.ep_voltage_max') | float(28.0) }}"
+  # Current boost voltage — used as the reference for both boost and float
+  current_boost: "{{ states('number.sc_ep_boost_voltage') | float(27.6) }}"
+
+action:
+  - choose:
+      # --- Vcm too high: step DOWN ---
+      - conditions:
+          - condition: template
+            value_template: "{{ vcm > thresh_hi }}"
+          - condition: template
+            # Only act if there's room to step down
+            value_template: "{{ current_boost > v_min }}"
+        sequence:
+          - variables:
+              new_voltage: >
+                {{ [current_boost - step, v_min] | max | round(2) }}
+          - service: number.set_value
+            target:
+              entity_id: number.sc_ep_boost_voltage
+            data:
+              value: "{{ new_voltage }}"
+          - service: number.set_value
+            target:
+              entity_id: number.sc_ep_float_voltage
+            data:
+              value: "{{ new_voltage }}"
+          - service: number.set_value
+            target:
+              entity_id: number.sc_ep_equalization_voltage
+            data:
+              value: "{{ new_voltage }}"
+          - delay:
+              seconds: "{{ states('input_number.ep_cooldown_secs') | int(30) }}"
+
+      # --- Vcm too low: step UP ---
+      - conditions:
+          - condition: template
+            value_template: "{{ vcm < thresh_lo }}"
+          - condition: template
+            # Only act if there's room to step up
+            value_template: "{{ current_boost < v_max }}"
+        sequence:
+          - variables:
+              new_voltage: >
+                {{ [current_boost + step, v_max] | min | round(2) }}
+          - service: number.set_value
+            target:
+              entity_id: number.sc_ep_boost_voltage
+            data:
+              value: "{{ new_voltage }}"
+          - service: number.set_value
+            target:
+              entity_id: number.sc_ep_float_voltage
+            data:
+              value: "{{ new_voltage }}"
+          - service: number.set_value
+            target:
+              entity_id: number.sc_ep_equalization_voltage
+            data:
+              value: "{{ new_voltage }}"
+          - delay:
+              seconds: "{{ states('input_number.ep_cooldown_secs') | int(30) }}"
