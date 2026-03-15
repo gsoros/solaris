@@ -596,6 +596,7 @@ sensor:
 
   # ----------------------------------------------------------------------------
   # JKBMS via BLE
+  # https://github.com/syssi/esphome-jk-bms/blob/main/esp32-ble-example.yaml
   # ----------------------------------------------------------------------------
   - platform: jk_bms_ble
     jk_bms_ble_id: jkbms
@@ -615,6 +616,8 @@ sensor:
       name: "BMS State of Charge"
       device_class: battery
       state_class: measurement
+    #battery_strings:
+    #  name: "BMS Cell Count"
     cell_voltage_1:
       name: "BMS Cell 1 Voltage"
     cell_voltage_2:
@@ -744,6 +747,8 @@ number:
       name: BMS Max Charge Current
     max_discharge_current:
       name: BMS Max Discharge Current
+    cell_count:
+      name: "BMS Cell Count"
 
 # ==============================================================================
 # SWITCHES
