@@ -642,8 +642,6 @@ sensor:
       name: "BMS Cell Voltage Delta"
     average_cell_voltage:
       name: "BMS Average Cell Voltage"
-    balancing:
-      name: "BMS balancing"
     temperature_sensor_1:
       name: "BMS Temp 1"
       device_class: temperature
