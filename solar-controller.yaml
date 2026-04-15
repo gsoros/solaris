@@ -44,15 +44,20 @@ wifi:
 captive_portal:
 
 logger:
-  level: INFO
+  level: DEBUG
   # Disable UART logger so it doesn't conflict with RS485 on UART2
   baud_rate: 0
   logs:
+    #modbus_controller: DEBUG
+    #modbus: DEBUG
     jk_bms_ble: WARN
-  #  sensor: WARN
-  #  #modbus_controller.sensor: WARN
-  #  modbus_controller: DEBUG
-  #  modbus: DEBUG
+    sensor: WARN
+    text_sensor: WARN
+    epever_settings: WARN
+    modbus_controller.sensor: WARN
+    jk_bms_ble.sensor: WARN
+    #sensor.jk_bms_ble: WARN          # no good
+    #sensor.modbus_controller: WARN   # no good
 
 api:
   encryption:
@@ -65,6 +70,12 @@ ota:
       then:
         - switch.turn_off: jkbms_ble_switch
         - logger.log: "BLE suspended for OTA"
+
+globals:
+  - id: shutdown_in_progress
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 # ------------------------------------------------------------------------------
 # RS485 UART — GPIO16=RX, GPIO17=TX (UART2), Variant B: DE=VCC, RE=GND
@@ -152,6 +163,7 @@ epever_settings:
 
   low_voltage_reconnect:
     name: "EP Low Voltage Reconnect"
+    id: ep_low_voltage_reconnect
     min_value: 20.0
     max_value: 26.0
 
@@ -167,6 +179,7 @@ epever_settings:
 
   low_voltage_disconnect:
     name: "EP Low Voltage Disconnect"
+    id: ep_low_voltage_disconnect
     min_value: 18.0
     max_value: 24.0
 
@@ -249,6 +262,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: epever
     name: "EP Batt Voltage"
+    id: ep_batt_voltage
     register_type: read
     address: 0x3104
     unit_of_measurement: "V"
@@ -636,6 +650,7 @@ sensor:
       name: "BMS Cell 8 Voltage"
     min_cell_voltage:
       name: "BMS Min Cell Voltage"
+      id: bms_min_cell_voltage
     max_cell_voltage:
       name: "BMS Max Cell Voltage"
     delta_cell_voltage:
@@ -701,6 +716,13 @@ binary_sensor:
       name: "BMS Online"
       device_class: connectivity
 
+  # Activated if low cell or pack voltage is detected, deactivated if
+  # both cell and pack voltages recover. HA should shutdown the Pi if
+  # this triggers.
+  - platform: template
+    name: "Pi Shutdown Request"
+    id: pi_shutdown_request
+
 # ==============================================================================
 # TEXT SENSORS
 # ==============================================================================
@@ -747,6 +769,10 @@ number:
       name: BMS Cell OVP Threshold
     cell_voltage_undervoltage_protection:
       name: BMS Cell UVP Threshold
+      id: bms_cell_uvp_threshold
+    cell_voltage_undervoltage_recovery:
+      name: BMS Cell UVR Threshold
+      id: bms_cell_uvr_threshold
     max_charge_current:
       name: BMS Max Charge Current
     max_discharge_current:
@@ -761,6 +787,8 @@ number:
 # ==============================================================================
 
 switch:
+  #- platform: factory_reset
+  #  name: "Factory Reset (Erase NVS)"
   - platform: jk_bms_ble
     jk_bms_ble_id: jkbms
     charging:
@@ -776,13 +804,13 @@ switch:
     name: BMS BLE Enable
 
   - platform: gpio
-    name: Relay 18650 Charger
-    id: relay_inverter_enable
+    name: Relay Pi
+    id: relay_pi
     pin:
       number: GPIO15
       inverted: false
-    restore_mode: RESTORE_DEFAULT_OFF
-    icon: mdi:power
+    restore_mode: RESTORE_DEFAULT_ON
+    icon: mdi:pi
 
   - platform: gpio
     name: Relay Wind Brake
@@ -836,3 +864,95 @@ switch:
       number: GPIO26
       inverted: false
     restore_mode: RESTORE_DEFAULT_OFF
+
+script:
+  - id: pi_kill_sequence
+    mode: single
+    then:
+      - lambda: 'id(shutdown_in_progress) = true;'
+      - logger.log: "Initiating Pi shutdown sequence"
+      - binary_sensor.template.publish:
+          id: pi_shutdown_request
+          state: ON
+      - delay: 60s # Buffer for HA to execute sudo shutdown -h now
+      - switch.turn_off: relay_pi
+      - delay: 10s # Let the caps drain
+      - lambda: 'id(shutdown_in_progress) = false;'
+
+  - id: pi_revive_sequence
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: 'return id(shutdown_in_progress);'
+          then:
+            - logger.log: "Revive attempted but shutdown still in progress, aborting revive"
+            - script.stop: pi_revive_sequence
+      - logger.log: "Reviving Pi"
+      - switch.turn_on: relay_pi
+      - binary_sensor.template.publish:
+          id: pi_shutdown_request
+          state: OFF
+
+interval:
+  - interval: 30s
+    then:
+      # Trigger kill if Pi is ON and voltages dip near the cutoffs
+      - if:
+          condition:
+            and:
+              - switch.is_on: relay_pi
+              - lambda: |-
+                  float voltage = id(ep_batt_voltage).state;
+                  float lvd = id(ep_low_voltage_disconnect).state;
+                  float cell_min = id(bms_min_cell_voltage).state;
+                  float cell_uvp = id(bms_cell_uvp_threshold).state;
+
+                  ESP_LOGD(
+                    "interval.kill_trigger",
+                    "Voltage=%.2f, LVD=%.2f, CellMin=%.2f, CellUVP=%.2f",
+                    voltage, lvd, cell_min, cell_uvp);
+
+                  // Bail if any sensor is offline or booting
+                  if (std::isnan(voltage) ||
+                      std::isnan(lvd) ||
+                      std::isnan(cell_min) ||
+                      std::isnan(cell_uvp)) {
+                    return false;
+                  }
+
+                  bool pack_dead = voltage < (lvd + 0.4);
+                  bool cell_dead = cell_min < (cell_uvp + 0.1);
+                  return pack_dead || cell_dead;
+          then:
+            - script.execute: pi_kill_sequence
+
+      # Trigger revive if Pi is OFF and voltages cross safe reconnects
+      - if:
+          condition:
+            and:
+              - switch.is_off: relay_pi
+              - lambda: |-
+                  float voltage = id(ep_batt_voltage).state;
+                  float lvr = id(ep_low_voltage_reconnect).state;
+                  float cell_min = id(bms_min_cell_voltage).state;
+                  float cell_uvr = id(bms_cell_uvr_threshold).state;
+
+                  ESP_LOGD(
+                    "interval.revive_trigger",
+                    "Voltage=%.2f, LVR=%.2f, CellMin=%.2f, CellUVR=%.2f",
+                    voltage, lvr, cell_min, cell_uvr);
+
+                  // Bail if any sensor is offline or booting
+                  if (std::isnan(voltage) ||
+                      std::isnan(lvr) ||
+                      std::isnan(cell_min) ||
+                      std::isnan(cell_uvr)) {
+                    return false;
+                  }
+
+                  bool pack_good = voltage > lvr;
+                  bool cell_good = cell_min > cell_uvr;
+                  return pack_good && cell_good;
+          then:
+            - script.execute: pi_revive_sequence
