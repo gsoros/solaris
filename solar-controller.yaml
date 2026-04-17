@@ -149,17 +149,17 @@ epever_settings:
   boost_voltage:
     name: "EP Boost Voltage"
     min_value: 22.0
-    max_value: 29.0
+    max_value: 30.0
 
   float_voltage:
     name: "EP Float Voltage"
     min_value: 22.0
-    max_value: 28.0
+    max_value: 30.0
 
   boost_reconnect_voltage:
     name: "EP Boost Reconnect Voltage"
     min_value: 20.0
-    max_value: 27.0
+    max_value: 30.0
 
   low_voltage_reconnect:
     name: "EP Low Voltage Reconnect"
