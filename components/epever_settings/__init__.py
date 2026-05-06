@@ -13,8 +13,12 @@ EpeverSettingsComponent = epever_settings_ns.class_(
 EpeverSettingNumber = epever_settings_ns.class_(
     "EpeverSettingNumber", number.Number, cg.Component
 )
+EpeverCompositeNumber = epever_settings_ns.class_(
+    "EpeverCompositeNumber", number.Number, cg.Component
+)
 
 CONF_MODBUS_CONTROLLER_ID = "modbus_controller_id"
+CONF_CHARGING_VOLTAGE_COMPOSITE_WRITE = "charging_voltage_composite_write"
 
 # Maps config key → (reg_index, friendly description)
 VOLTAGE_SETTINGS = {
@@ -43,6 +47,16 @@ def make_number_schema():
     )
 
 
+def make_composite_number_schema():
+    return number.number_schema(EpeverCompositeNumber).extend(
+        {
+            cv.Optional("min_value", default=10.0): cv.float_,
+            cv.Optional("max_value", default=32.0): cv.float_,
+            cv.Optional("step", default=0.01): cv.float_,
+        }
+    )
+
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(EpeverSettingsComponent),
@@ -50,6 +64,9 @@ CONFIG_SCHEMA = cv.Schema(
             modbus_controller.ModbusController
         ),
         **{cv.Optional(key): make_number_schema() for key in VOLTAGE_SETTINGS},
+        cv.Optional(
+            CONF_CHARGING_VOLTAGE_COMPOSITE_WRITE
+        ): make_composite_number_schema(),
     }
 )
 
@@ -75,3 +92,15 @@ async def to_code(config):
         cg.add(num.set_reg_index(reg_index))
         # Register with manager so it can publish_state() on cache ready
         cg.add(mgr.register_number(reg_index, num))
+
+    # Handle composite voltage write entity
+    if CONF_CHARGING_VOLTAGE_COMPOSITE_WRITE in config:
+        conf = config[CONF_CHARGING_VOLTAGE_COMPOSITE_WRITE]
+        num = await number.new_number(
+            conf,
+            min_value=conf["min_value"],
+            max_value=conf["max_value"],
+            step=conf["step"],
+        )
+        cg.add(num.set_manager(mgr))
+        # Composite number doesn't need register index

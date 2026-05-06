@@ -130,63 +130,82 @@ epever_settings:
     name: "EP High Voltage Disconnect"
     min_value: 24.0
     max_value: 32.0
+    mode: box
 
   charging_limit_voltage:
     name: "EP Charging Limit Voltage"
     min_value: 22.0
     max_value: 30.0
+    mode: box
 
   over_voltage_reconnect:
     name: "EP Over Voltage Reconnect"
     min_value: 22.0
     max_value: 30.0
+    mode: box
 
   equalization_voltage:
     name: "EP Equalization Voltage"
     min_value: 22.0
     max_value: 30.0
+    mode: box
 
   boost_voltage:
     name: "EP Boost Voltage"
     min_value: 22.0
     max_value: 30.0
+    mode: box
 
   float_voltage:
     name: "EP Float Voltage"
     min_value: 22.0
     max_value: 30.0
+    mode: box
 
   boost_reconnect_voltage:
     name: "EP Boost Reconnect Voltage"
     min_value: 20.0
     max_value: 30.0
+    mode: box
 
   low_voltage_reconnect:
     name: "EP Low Voltage Reconnect"
     id: ep_low_voltage_reconnect
     min_value: 20.0
     max_value: 26.0
+    mode: box
 
   under_voltage_recover:
     name: "EP Under Voltage Recover"
     min_value: 18.0
     max_value: 25.0
+    mode: box
 
   under_voltage_warning:
     name: "EP Under Voltage Warning"
     min_value: 18.0
     max_value: 25.0
+    mode: box
 
   low_voltage_disconnect:
     name: "EP Low Voltage Disconnect"
     id: ep_low_voltage_disconnect
     min_value: 18.0
     max_value: 24.0
+    mode: box
 
   discharging_limit_voltage:
     name: "EP Discharging Limit Voltage"
     min_value: 18.0
     max_value: 24.0
+    mode: box
+
+  charging_voltage_composite_write:
+    name: "EP Charging Voltage Composite Write"
+    min_value: 22.0
+    max_value: 30.0
+    mode: box
+    #internal: true
 
 # ==============================================================================
 # BUTTONS
@@ -763,24 +782,33 @@ number:
     jk_bms_ble_id: jkbms
     balance_starting_voltage:
       name: BMS Balance Start Voltage
+      mode: box
     balance_trigger_voltage:
       name: BMS Balance Trigger Voltage
+      mode: box
     cell_voltage_overvoltage_protection:
       name: BMS Cell OVP Threshold
+      mode: box
     cell_voltage_undervoltage_protection:
       name: BMS Cell UVP Threshold
       id: bms_cell_uvp_threshold
+      mode: box
     cell_voltage_undervoltage_recovery:
       name: BMS Cell UVR Threshold
       id: bms_cell_uvr_threshold
+      mode: box
     max_charge_current:
       name: BMS Max Charge Current
+      mode: box
     max_discharge_current:
       name: BMS Max Discharge Current
+      mode: box
     max_balance_current:
       name: BMS max Balance Current
+      mode: box
     cell_count:
       name: "BMS Cell Count"
+      mode: box
 
 # ==============================================================================
 # SWITCHES

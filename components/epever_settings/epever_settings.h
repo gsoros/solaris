@@ -45,6 +45,7 @@ static const char *const TAG = "epever_settings";
 
 // Forward declaration so EpeverSettingsComponent can hold pointers to number entities
 class EpeverSettingNumber;
+class EpeverCompositeNumber;
 
 class EpeverSettingsComponent : public Component {
  public:
@@ -96,6 +97,9 @@ class EpeverSettingsComponent : public Component {
     uint8_t reg_index[] = {IDX_CL, IDX_BV, IDX_FV, IDX_EQV};
     write_same_value_to_multiple_indexes(reg_index, 4, value);
   }
+
+  // Update individual entity states after composite write
+  void update_individual_states(float value);
 
   // Populate cache from a freshly-read register block (called on poll via lambda).
   // Tracks how many distinct registers have been seen; writes are blocked
@@ -214,6 +218,22 @@ class EpeverSettingNumber : public number::Number, public Component {
   }
 };
 
+// Composite number entity that writes same value to CL, BV, FV, EQV registers
+class EpeverCompositeNumber : public number::Number, public Component {
+ public:
+  void set_manager(EpeverSettingsComponent *mgr) { manager_ = mgr; }
+
+ protected:
+  EpeverSettingsComponent *manager_{nullptr};
+
+  void control(float value) override {
+    // Write to device
+    manager_->write_cl_bv_fv_eqv(value);
+    // Update individual entity states
+    manager_->update_individual_states(value);
+  }
+};
+
 // Defined here (after EpeverSettingNumber) so publish_state() is accessible
 inline void EpeverSettingsComponent::publish_initial_states_() {
   for (uint8_t i = 0; i < EPEVER_SETTINGS_COUNT; i++) {
@@ -224,6 +244,27 @@ inline void EpeverSettingsComponent::publish_initial_states_() {
     float val = (i >= 3) ? pending_[i] / 100.0f : (float) pending_[i];
     numbers_[i]->publish_state(val);
     ESP_LOGD(TAG, "Published initial state for reg[%d]: %.2f", i, val);
+  }
+}
+
+// Update individual entity states after composite write
+inline void EpeverSettingsComponent::update_individual_states(float value) {
+  // Update CL, BV, FV, EQV entities if they exist
+  if (numbers_[IDX_CL] != nullptr) {
+    numbers_[IDX_CL]->publish_state(value);
+    ESP_LOGD(TAG, "Updated CL state: %.2f", value);
+  }
+  if (numbers_[IDX_BV] != nullptr) {
+    numbers_[IDX_BV]->publish_state(value);
+    ESP_LOGD(TAG, "Updated BV state: %.2f", value);
+  }
+  if (numbers_[IDX_FV] != nullptr) {
+    numbers_[IDX_FV]->publish_state(value);
+    ESP_LOGD(TAG, "Updated FV state: %.2f", value);
+  }
+  if (numbers_[IDX_EQV] != nullptr) {
+    numbers_[IDX_EQV]->publish_state(value);
+    ESP_LOGD(TAG, "Updated EQV state: %.2f", value);
   }
 }
 
