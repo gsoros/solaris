@@ -30,18 +30,18 @@ static const char *const TAG = "epever_settings";
 #define EPEVER_SETTINGS_COUNT 15
 
 // Indices
-#define IDX_HVD 3
-#define IDX_CL 4
-#define IDX_OVR 5
-#define IDX_EQV 6
-#define IDX_BV 7
-#define IDX_FV 8
-#define IDX_BRV 9
-#define IDX_LVR 10
-#define IDX_UVR 11
-#define IDX_UVW 12
-#define IDX_LVD 13
-#define IDX_DL 14
+#define IDX_HVD 3   // High Voltage Disconnect
+#define IDX_CL 4    // Charging Limit Voltage
+#define IDX_OVR 5   // Over Voltage Reconnect
+#define IDX_EQV 6   // Equalization Voltage
+#define IDX_BV 7    // Boost Voltage
+#define IDX_FV 8    // Float Voltage
+#define IDX_BRV 9   // Boost Reconnect Voltage
+#define IDX_LVR 10  // Low Voltage Reconnect
+#define IDX_UVR 11  // Under Voltage Recover
+#define IDX_UVW 12  // Under Voltage Warning
+#define IDX_LVD 13  // Low Voltage Disconnect
+#define IDX_DL 14   // Discharging Limit Voltage
 
 // Forward declaration so EpeverSettingsComponent can hold pointers to number entities
 class EpeverSettingNumber;
@@ -56,7 +56,7 @@ class EpeverSettingsComponent : public Component {
       numbers_[index] = num;
   }
 
-  // Called by number entities when user changes a value in HA
+  // Write a value to a specific register index. Values are cached and written to the device in batches
   void write_setting(uint8_t reg_index, float value) {
     if (!is_ready()) {
       ESP_LOGW(TAG,
@@ -69,6 +69,32 @@ class EpeverSettingsComponent : public Component {
     dirty_ = true;
     ESP_LOGI(TAG, "Setting reg[%d] queued: %.2f (raw %d)", reg_index, value, pending_[reg_index]);
     this->write_settings_();
+  }
+
+  // Method for writing the same value to multiple indexes with one call
+  // and save some EEPROM write cycles.
+  // @param reg_index Array of register indexes to write to (e.g. {IDX_HVD, IDX_CL, IDX_OVR}).
+  // @param value The value to write to all specified indexes.
+  // @param count The number of indexes in the reg_index array.
+  void write_same_value_to_multiple_indexes(uint8_t reg_index[], uint8_t count, float value) {
+    if (!is_ready()) {
+      ESP_LOGW(TAG,
+               "Write ignored — cache not yet populated from Epever "
+               "(reg[%d] = %.2f). Retry after first poll cycle.",
+               reg_index[0], value);
+      return;
+    }
+    for (uint8_t i = 0; i < count; i++) {
+      pending_[reg_index[i]] = (uint16_t) (value * 100.0f);
+      ESP_LOGI(TAG, "Setting reg[%d] queued: %.2f (raw %d)", reg_index[i], value, pending_[reg_index[i]]);
+    }
+    dirty_ = true;
+    this->write_settings_();
+  }
+
+  void write_cl_bv_fv_eqv(float value) {
+    uint8_t reg_index[] = {IDX_CL, IDX_BV, IDX_FV, IDX_EQV};
+    write_same_value_to_multiple_indexes(reg_index, 4, value);
   }
 
   // Populate cache from a freshly-read register block (called on poll via lambda).
@@ -109,7 +135,7 @@ class EpeverSettingsComponent : public Component {
   void enforce_constraints_() {
     uint16_t *r = pending_;
 
-    // Range guards from original FW
+    // Hard-coded range guards
     if (r[IDX_CL] < 1200)
       r[IDX_CL] = 1200;
     if (r[IDX_CL] > 6000)
@@ -119,7 +145,7 @@ class EpeverSettingsComponent : public Component {
     if (r[IDX_DL] > 5000)
       r[IDX_DL] = 5000;
 
-    // hvd > cl >= eqv >= bv >= fv > brv
+    // HVD > CL >= EQV >= BV >= FV > BRV
     if (r[IDX_HVD] <= r[IDX_CL])
       r[IDX_HVD] = r[IDX_CL] + 1;
     if (r[IDX_EQV] > r[IDX_CL])
@@ -131,23 +157,23 @@ class EpeverSettingsComponent : public Component {
     if (r[IDX_BRV] >= r[IDX_FV])
       r[IDX_BRV] = r[IDX_FV] - 1;
 
-    // hvd > ovr
+    // HVD > OVR
     if (r[IDX_OVR] >= r[IDX_HVD])
       r[IDX_OVR] = r[IDX_HVD] - 1;
 
-    // lvr > lvd >= dl
+    // LVR > LVD >= DL
     if (r[IDX_LVD] < r[IDX_DL])
       r[IDX_LVD] = r[IDX_DL];
     if (r[IDX_LVR] <= r[IDX_LVD])
       r[IDX_LVR] = r[IDX_LVD] + 1;
 
-    // uvr > uvw >= dl
+    // UVR > UVW >= DL
     if (r[IDX_UVW] < r[IDX_DL])
       r[IDX_UVW] = r[IDX_DL] + 1;
     if (r[IDX_UVR] <= r[IDX_UVW])
       r[IDX_UVR] = r[IDX_UVW] + 1;
 
-    // brv > lvd
+    // BRV > LVD
     if (r[IDX_BRV] <= r[IDX_LVD])
       r[IDX_BRV] = r[IDX_LVD] + 1;
   }
