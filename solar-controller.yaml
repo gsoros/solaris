@@ -65,7 +65,8 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    encryption:
+    #password: !secret ota_password
     on_begin:
       then:
         - switch.turn_off: jkbms_ble_switch
@@ -698,8 +699,6 @@ sensor:
     total_charging_cycle_capacity:
       name: "BMS Total Throughput"
       state_class: total_increasing
-    errors_bitmask:
-      name: "BMS Errors Bitmask"
 
 # ==============================================================================
 # BINARY SENSORS
@@ -772,6 +771,11 @@ text_sensor:
       name: "WiFi SSID"
     mac_address:
       name: "MAC Address"
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms
+    errors_bitmask_hex:
+      name: "BMS Errors Bitmask"
 
 # ==============================================================================
 # NUMBERS — BMS only (Epever handled by epever_settings component above)
