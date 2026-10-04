@@ -2,8 +2,7 @@
 # ESPHome config: Solar Controller
 # Hardware: NodeMCU-32S + MAX3485 + Epever XTRA4415N + JKBMS JK_BD6A20S10P + 8ch relay
 # ------------------------------------------------------------------------------
-# NOTE: EN pin has 47nF cap to GND on hardware (boot stability) — no yaml needed
-# NOTE: First flash must be via USB. OTA thereafter.
+# NOTE: EN pin has 47nF cap to GND on hardware
 # ==============================================================================
 
 substitutions:
@@ -70,6 +69,7 @@ ota:
     on_begin:
       then:
         - switch.turn_off: jkbms_ble_switch
+        - switch.turn_off: jkbms2_ble_switch
         - logger.log: "BLE suspended for OTA"
 
 globals:
@@ -111,10 +111,16 @@ esp32_ble_tracker:
 ble_client:
   - mac_address: !secret jkbms_mac
     id: jkbms_ble_client
+  - mac_address: !secret jkbms2_mac
+    id: jkbms2_ble_client
 
 jk_bms_ble:
   - ble_client_id: jkbms_ble_client
     id: jkbms
+    protocol_version: JK02_32S # HW version >= 11.0
+    throttle: 5s
+  - ble_client_id: jkbms2_ble_client
+    id: jkbms2
     protocol_version: JK02_32S # HW version >= 11.0
     throttle: 5s
 
@@ -219,6 +225,13 @@ button:
       name: "BMS Retrieve Settings"
     retrieve_device_info:
       name: "BMS Retrieve Device Info"
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    retrieve_settings:
+      name: "BMS2 Retrieve Settings"
+    retrieve_device_info:
+      name: "BMS2 Retrieve Device Info"
 
   - platform: restart
     name: "Restart"
@@ -685,11 +698,11 @@ sensor:
       name: "BMS Temp 2"
       device_class: temperature
       state_class: measurement
-    power_tube_temperature:
+    mosfet_temperature:
       name: "BMS MOS Temp"
       device_class: temperature
       state_class: measurement
-    total_battery_capacity_setting:
+    full_charge_capacity:
       name: "BMS Capacity Conf"
     capacity_remaining:
       name: "BMS Capacity Remaining"
@@ -698,6 +711,74 @@ sensor:
       state_class: total_increasing
     total_charging_cycle_capacity:
       name: "BMS Total Throughput"
+      state_class: total_increasing
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    total_voltage:
+      name: "BMS2 Battery Voltage"
+      device_class: voltage
+      state_class: measurement
+    current:
+      name: "BMS2 Battery Current"
+      device_class: current
+      state_class: measurement
+    power:
+      name: "BMS2 Battery Power"
+      device_class: power
+      state_class: measurement
+    state_of_charge:
+      name: "BMS2 State of Charge"
+      device_class: battery
+      state_class: measurement
+    balancing_current:
+      name: "BMS2 Balancing Current"
+    cell_voltage_1:
+      name: "BMS2 Cell 1 Voltage"
+    cell_voltage_2:
+      name: "BMS2 Cell 2 Voltage"
+    cell_voltage_3:
+      name: "BMS2 Cell 3 Voltage"
+    cell_voltage_4:
+      name: "BMS2 Cell 4 Voltage"
+    cell_voltage_5:
+      name: "BMS2 Cell 5 Voltage"
+    cell_voltage_6:
+      name: "BMS2 Cell 6 Voltage"
+    cell_voltage_7:
+      name: "BMS2 Cell 7 Voltage"
+    cell_voltage_8:
+      name: "BMS2 Cell 8 Voltage"
+    min_cell_voltage:
+      name: "BMS2 Min Cell Voltage"
+      id: bms2_min_cell_voltage
+    max_cell_voltage:
+      name: "BMS2 Max Cell Voltage"
+    delta_cell_voltage:
+      name: "BMS2 Cell Voltage Delta"
+    average_cell_voltage:
+      name: "BMS2 Average Cell Voltage"
+    temperature_sensor_1:
+      name: "BMS2 Temp 1"
+      device_class: temperature
+      state_class: measurement
+    temperature_sensor_2:
+      name: "BMS2 Temp 2"
+      device_class: temperature
+      state_class: measurement
+    mosfet_temperature:
+      name: "BMS2 MOS Temp"
+      device_class: temperature
+      state_class: measurement
+    full_charge_capacity:
+      name: "BMS2 Capacity Conf"
+    capacity_remaining:
+      name: "BMS2 Capacity Remaining"
+    charging_cycles:
+      name: "BMS2 Charge Cycles"
+      state_class: total_increasing
+    total_charging_cycle_capacity:
+      name: "BMS2 Total Throughput"
       state_class: total_increasing
 
 # ==============================================================================
@@ -732,6 +813,21 @@ binary_sensor:
       name: "BMS Balancing"
     online_status:
       name: "BMS Online"
+      id: bms_online_status
+      device_class: connectivity
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    charging:
+      name: "BMS2 Charging"
+      device_class: battery_charging
+    discharging:
+      name: "BMS2 Discharging"
+    balancing:
+      name: "BMS2 Balancing"
+    online_status:
+      name: "BMS2 Online"
+      id: bms2_online_status
       device_class: connectivity
 
   # Activated if low cell or pack voltage is detected, deactivated if
@@ -764,6 +860,15 @@ text_sensor:
     hardware_version:
       name: "BMS hardware version"
 
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    errors:
+      name: "BMS2 Errors"
+    software_version:
+      name: "BMS2 Software Version"
+    hardware_version:
+      name: "BMS2 Hardware Version"
+
   - platform: wifi_info
     ip_address:
       name: "IP Address"
@@ -777,6 +882,11 @@ text_sensor:
     errors_bitmask_hex:
       name: "BMS Errors Bitmask"
 
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    errors_bitmask_hex:
+      name: "BMS2 Errors Bitmask"
+
 # ==============================================================================
 # NUMBERS — BMS only (Epever handled by epever_settings component above)
 # ==============================================================================
@@ -784,7 +894,7 @@ text_sensor:
 number:
   - platform: jk_bms_ble
     jk_bms_ble_id: jkbms
-    balance_starting_voltage:
+    balancing_start_voltage:
       name: BMS Balance Start Voltage
       mode: box
     balance_trigger_voltage:
@@ -814,6 +924,38 @@ number:
       name: "BMS Cell Count"
       mode: box
 
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    balancing_start_voltage:
+      name: BMS2 Balance Start Voltage
+      mode: box
+    balance_trigger_voltage:
+      name: BMS2 Balance Trigger Voltage
+      mode: box
+    cell_voltage_overvoltage_protection:
+      name: BMS2 Cell OVP Threshold
+      mode: box
+    cell_voltage_undervoltage_protection:
+      name: BMS2 Cell UVP Threshold
+      id: bms2_cell_uvp_threshold
+      mode: box
+    cell_voltage_undervoltage_recovery:
+      name: BMS2 Cell UVR Threshold
+      id: bms2_cell_uvr_threshold
+      mode: box
+    max_charge_current:
+      name: BMS2 Max Charge Current
+      mode: box
+    max_discharge_current:
+      name: BMS2 Max Discharge Current
+      mode: box
+    max_balance_current:
+      name: BMS2 Max Balance Current
+      mode: box
+    cell_count:
+      name: "BMS2 Cell Count"
+      mode: box
+
 # ==============================================================================
 # SWITCHES
 # ==============================================================================
@@ -830,10 +972,24 @@ switch:
     balancer:
       name: BMS Balancer Enable
 
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jkbms2
+    charging:
+      name: BMS2 Charging Enable
+    discharging:
+      name: BMS2 Discharging Enable
+    balancer:
+      name: BMS2 Balancer Enable
+
   - platform: ble_client
     ble_client_id: jkbms_ble_client
     id: jkbms_ble_switch
     name: BMS BLE Enable
+
+  - platform: ble_client
+    ble_client_id: jkbms2_ble_client
+    id: jkbms2_ble_switch
+    name: BMS2 BLE Enable
 
   - platform: gpio
     name: Relay Pi
@@ -937,25 +1093,37 @@ interval:
               - lambda: |-
                   float voltage = id(ep_batt_voltage).state;
                   float lvd = id(ep_low_voltage_disconnect).state;
-                  float cell_min = id(bms_min_cell_voltage).state;
                   float cell_uvp = id(bms_cell_uvp_threshold).state;
+                  float cell_min_2 = id(bms2_min_cell_voltage).state;
+                  float cell_uvp_2 = id(bms2_cell_uvp_threshold).state;
 
                   ESP_LOGD(
                     "interval.kill_trigger",
-                    "Voltage=%.2f, LVD=%.2f, CellMin=%.2f, CellUVP=%.2f",
-                    voltage, lvd, cell_min, cell_uvp);
+                    "Voltage=%.2f, LVD=%.2f, CellMin1=%.2f, CellUVP1=%.2f, "
+                    "CellMin2=%.2f, CellUVP2=%.2f",
+                    voltage, lvd, id(bms_min_cell_voltage).state, cell_uvp,
+                    cell_min_2, cell_uvp_2);
 
-                  // Bail if any sensor is offline or booting
-                  if (std::isnan(voltage) ||
-                      std::isnan(lvd) ||
-                      std::isnan(cell_min) ||
-                      std::isnan(cell_uvp)) {
+                  // Pack telemetry is required; cell telemetry is gated per BMS.
+                  if (std::isnan(voltage) || std::isnan(lvd)) {
                     return false;
                   }
 
                   bool pack_dead = voltage < (lvd + 0.4);
-                  bool cell_dead = cell_min < (cell_uvp + 0.1);
-                  return pack_dead || cell_dead;
+                  if (pack_dead) {
+                    return true;
+                  }
+
+                  float cell_min_1 = id(bms_min_cell_voltage).state;
+                  bool bms1_cell_dead = id(bms_online_status).state &&
+                      !std::isnan(cell_min_1) &&
+                      !std::isnan(cell_uvp) &&
+                      cell_min_1 < (cell_uvp + 0.1);
+                  bool bms2_cell_dead = id(bms2_online_status).state &&
+                      !std::isnan(cell_min_2) &&
+                      !std::isnan(cell_uvp_2) &&
+                      cell_min_2 < (cell_uvp_2 + 0.1);
+                  return bms1_cell_dead && bms2_cell_dead;
           then:
             - script.execute: pi_kill_sequence
 
@@ -967,24 +1135,36 @@ interval:
               - lambda: |-
                   float voltage = id(ep_batt_voltage).state;
                   float lvr = id(ep_low_voltage_reconnect).state;
-                  float cell_min = id(bms_min_cell_voltage).state;
                   float cell_uvr = id(bms_cell_uvr_threshold).state;
+                  float cell_min_2 = id(bms2_min_cell_voltage).state;
+                  float cell_uvr_2 = id(bms2_cell_uvr_threshold).state;
 
                   ESP_LOGD(
                     "interval.revive_trigger",
-                    "Voltage=%.2f, LVR=%.2f, CellMin=%.2f, CellUVR=%.2f",
-                    voltage, lvr, cell_min, cell_uvr);
+                    "Voltage=%.2f, LVR=%.2f, CellMin1=%.2f, CellUVR1=%.2f, "
+                    "CellMin2=%.2f, CellUVR2=%.2f",
+                    voltage, lvr, id(bms_min_cell_voltage).state, cell_uvr,
+                    cell_min_2, cell_uvr_2);
 
-                  // Bail if any sensor is offline or booting
-                  if (std::isnan(voltage) ||
-                      std::isnan(lvr) ||
-                      std::isnan(cell_min) ||
-                      std::isnan(cell_uvr)) {
+                  // Pack telemetry is required; cell telemetry is gated per BMS.
+                  if (std::isnan(voltage) || std::isnan(lvr)) {
                     return false;
                   }
 
                   bool pack_good = voltage > lvr;
-                  bool cell_good = cell_min > cell_uvr;
-                  return pack_good && cell_good;
+                  if (!pack_good) {
+                    return false;
+                  }
+
+                  float cell_min_1 = id(bms_min_cell_voltage).state;
+                  bool bms1_cell_good = id(bms_online_status).state &&
+                      !std::isnan(cell_min_1) &&
+                      !std::isnan(cell_uvr) &&
+                      cell_min_1 > cell_uvr;
+                  bool bms2_cell_good = id(bms2_online_status).state &&
+                      !std::isnan(cell_min_2) &&
+                      !std::isnan(cell_uvr_2) &&
+                      cell_min_2 > cell_uvr_2;
+                  return bms1_cell_good || bms2_cell_good;
           then:
             - script.execute: pi_revive_sequence

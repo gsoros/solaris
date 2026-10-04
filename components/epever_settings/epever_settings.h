@@ -47,9 +47,12 @@ static const char *const TAG = "epever_settings";
 class EpeverSettingNumber;
 class EpeverCompositeNumber;
 
-class EpeverSettingsComponent : public Component {
+class EpeverSettingsComponent : public Component, public modbus_controller::WriterEntity {
  public:
-  void set_modbus_controller(modbus_controller::ModbusController *ctrl) { controller_ = ctrl; }
+  void set_modbus_controller(modbus_controller::ModbusController *ctrl) {
+    controller_ = ctrl;
+    this->set_controller_(ctrl);
+  }
 
   // Called from __init__.py codegen to register each number entity by index
   void register_number(uint8_t index, EpeverSettingNumber *num) {
@@ -193,10 +196,11 @@ class EpeverSettingsComponent : public Component {
       ESP_LOGI(TAG, "  [0x%04X] = %d (%.2fV)", EPEVER_SETTINGS_BASE + i, pending_[i], pending_[i] / 100.0f);
     }
 
-    std::vector<uint16_t> data(pending_, pending_ + EPEVER_SETTINGS_COUNT);
-    modbus_controller::ModbusCommandItem cmd = modbus_controller::ModbusCommandItem::create_write_multiple_command(
-        controller_, EPEVER_SETTINGS_BASE, EPEVER_SETTINGS_COUNT, data);
-    controller_->queue_command(cmd);
+    std::span<const uint16_t> data(pending_, EPEVER_SETTINGS_COUNT);
+    if (!this->write_multiple_registers(EPEVER_SETTINGS_BASE, data)) {
+      ESP_LOGW(TAG, "Settings block write was refused by the Modbus hub.");
+      return;
+    }
     dirty_ = false;
     ESP_LOGI(TAG, "Settings block queued for write.");
   }
