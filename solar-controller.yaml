@@ -1,6 +1,6 @@
 # ==============================================================================
 # ESPHome config: Solar Controller
-# Hardware: NodeMCU-32S + MAX3485 + Epever XTRA4415N + JKBMS JK_BD6A20S10P + 8ch relay
+# Hardware: NodeMCU-32S + MAX3485 + Epever XTRA4415N + JK_BD6A20S10P + JK_B2A8S20P_HCRPB, + 8ch relay
 # ------------------------------------------------------------------------------
 # NOTE: EN pin has 47nF cap to GND on hardware
 # ==============================================================================
