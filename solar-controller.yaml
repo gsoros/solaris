@@ -1,6 +1,7 @@
 # ==============================================================================
 # ESPHome config: Solar Controller
 # Hardware: NodeMCU-32S + MAX3485 + Epever XTRA4415N + JK_BD6A20S10P + JK_B2A8S20P_HCRPB, + 8ch relay
+# BMS HW v11.XW FW v11.262, BMS2 HW v19H FW v19.09
 # ------------------------------------------------------------------------------
 # NOTE: EN pin has 47nF cap to GND on hardware
 # ==============================================================================
@@ -76,7 +77,7 @@ globals:
   - id: shutdown_in_progress
     type: bool
     restore_value: no
-    initial_value: 'false'
+    initial_value: "false"
 
 # ------------------------------------------------------------------------------
 # RS485 UART — GPIO16=RX, GPIO17=TX (UART2), Variant B: DE=VCC, RE=GND
@@ -923,6 +924,12 @@ number:
     cell_count:
       name: "BMS Cell Count"
       mode: box
+    voltage_calibration:
+      name: "BMS Voltage Calibration"
+      mode: box
+    current_calibration:
+      name: "BMS Current Calibration"
+      mode: box
 
   - platform: jk_bms_ble
     jk_bms_ble_id: jkbms2
@@ -954,6 +961,12 @@ number:
       mode: box
     cell_count:
       name: "BMS2 Cell Count"
+      mode: box
+    voltage_calibration:
+      name: "BMS2 Voltage Calibration"
+      mode: box
+    current_calibration:
+      name: "BMS2 Current Calibration"
       mode: box
 
 # ==============================================================================
@@ -1057,7 +1070,7 @@ script:
   - id: pi_kill_sequence
     mode: single
     then:
-      - lambda: 'id(shutdown_in_progress) = true;'
+      - lambda: "id(shutdown_in_progress) = true;"
       - logger.log: "Initiating Pi shutdown sequence"
       - binary_sensor.template.publish:
           id: pi_shutdown_request
@@ -1065,14 +1078,14 @@ script:
       - delay: 60s # Buffer for HA to execute sudo shutdown -h now
       - switch.turn_off: relay_pi
       - delay: 10s # Let the caps drain
-      - lambda: 'id(shutdown_in_progress) = false;'
+      - lambda: "id(shutdown_in_progress) = false;"
 
   - id: pi_revive_sequence
     mode: single
     then:
       - if:
           condition:
-            lambda: 'return id(shutdown_in_progress);'
+            lambda: "return id(shutdown_in_progress);"
           then:
             - logger.log: "Revive attempted but shutdown still in progress, aborting revive"
             - script.stop: pi_revive_sequence
